@@ -39,6 +39,7 @@ type Props = {
   isTTSPlaying?: Record<string, boolean>;
   handleTTSClick?: (messageId: string, messageText: string) => void;
   handleTTSStop?: (messageId: string) => void;
+  sendMessage?: (message: string) => void;
 };
 
 const defaultBackgroundColor = '#f7f8ff';
@@ -57,13 +58,34 @@ export const BotBubble = (props: Props) => {
   const [copiedMessage, setCopiedMessage] = createSignal(false);
   const [thumbsUpColor, setThumbsUpColor] = createSignal(props.feedbackColor ?? defaultFeedbackColor); // default color
   const [thumbsDownColor, setThumbsDownColor] = createSignal(props.feedbackColor ?? defaultFeedbackColor); // default color
+  const [uiData, setUiData] = createSignal<any | null>(null);
 
   // Store a reference to the bot message element for the copyMessageToClipboard function
   const [botMessageElement, setBotMessageElement] = createSignal<HTMLElement | null>(null);
 
+
+  const parseUIBlock = (message: string): { text: string; uiData: any | null } => {
+    const match = message.match(/<ui>([\s\S]*?)<\/ui>/i);
+    if (!match) return { text: message, uiData: null };
+    try {
+      const uiData = JSON.parse(match[1].trim());
+      const text = message.replace(/<ui>[\s\S]*?<\/ui>/i, '').trim();
+      return { text, uiData };
+
+    } catch {
+      return { text: message, uiData: null };
+    }
+  };
   const setBotMessageRef = (el: HTMLSpanElement) => {
     if (el) {
-      el.innerHTML = Marked.parse(props.message.message);
+      // Parse <ui> block first
+      const { text, uiData: parsed } = parseUIBlock(props.message.message);
+      if (parsed) setUiData(parsed);
+
+
+      // Use cleaned text ( without <ut> block) for amrkdown rendering 
+      el.innerHTML = Marked.parse(text);
+      // el.innerHTML = Marked.parse(props.message.message);
 
       // Apply textColor to all links, headings, and other markdown elements except code
       const textColor = props.textColor ?? defaultTextColor;
@@ -313,6 +335,7 @@ export const BotBubble = (props: Props) => {
       }
     };
 
+
     return (
       <>
         <Show when={item.type === 'png' || item.type === 'jpeg'}>
@@ -323,8 +346,8 @@ export const BotBubble = (props: Props) => {
                 const isFileStorage = typeof item.data === 'string' && item.data.startsWith('FILE-STORAGE::');
                 return isFileStorage
                   ? `${props.apiHost}/api/v1/get-upload-file?chatflowId=${props.chatflowid}&chatId=${props.chatId}&fileName=${(
-                      item.data as string
-                    ).replace('FILE-STORAGE::', '')}`
+                    item.data as string
+                  ).replace('FILE-STORAGE::', '')}`
                   : (item.data as string);
               })()}
             />
@@ -448,6 +471,20 @@ export const BotBubble = (props: Props) => {
               </For>
             </div>
           )}
+          {/* {props.message.message && ( */}
+          {/*   <span */}
+          {/*     ref={setBotMessageRef} */}
+          {/*     class="px-4 py-2 ml-2 max-w-full chatbot-host-bubble prose" */}
+          {/*     data-testid="host-bubble" */}
+          {/*     style={{ */}
+          {/*       'background-color': props.backgroundColor ?? defaultBackgroundColor, */}
+          {/*       color: props.textColor ?? defaultTextColor, */}
+          {/*       'border-radius': '6px', */}
+          {/*       'font-size': props.fontSize ? `${props.fontSize}px` : `${defaultFontSize}px`, */}
+          {/*     }} */}
+          {/*   /> */}
+          {/* )} */}
+
           {props.message.message && (
             <span
               ref={setBotMessageRef}
@@ -461,6 +498,47 @@ export const BotBubble = (props: Props) => {
               }}
             />
           )}
+
+          {/* ---- UI CARDS BLOCK ---- */}
+          <Show when={uiData() !== null}>
+            <div class="px-2 ml-2 mt-2 flex flex-col gap-2">
+              <Show when={uiData()?.question}>
+                <p class="text-sm font-semibold" style={{ color: props.textColor ?? defaultTextColor }}>
+                  {uiData()?.question}
+                </p>
+              </Show>
+              <div class="flex flex-wrap gap-2">
+                <For each={uiData()?.cards ?? []}>
+                  {(card: { label: string; prompt: string; topic?: string }) => (
+                    <button
+                      type="button"
+                      title={card.topic}
+                      class="px-3 py-1.5 rounded-full border text-sm font-family-inherit"
+                      style={{
+                        'border-color': props.feedbackColor ?? defaultFeedbackColor,
+                        color: props.feedbackColor ?? defaultFeedbackColor,
+                        'background-color': 'transparent',
+                        cursor: 'pointer',
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.backgroundColor = props.feedbackColor ?? defaultFeedbackColor;
+                        (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
+                        (e.currentTarget as HTMLButtonElement).style.color = props.feedbackColor ?? defaultFeedbackColor;
+                      }}
+                      onClick={() => props.sendMessage?.(card.prompt)}
+                    >
+                      {card.label}
+                    </button>
+
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
           {props.message.action && (
             <div class="px-4 py-2 flex flex-row justify-start space-x-2">
               <For each={props.message.action.elements || []}>
